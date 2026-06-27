@@ -24,6 +24,10 @@ impl BackendMessages {
     pub fn empty() -> BackendMessages {
         BackendMessages(BytesMut::new())
     }
+
+    pub fn capacity(&self) -> usize {
+        self.0.capacity()
+    }
 }
 
 impl FallibleIterator for BackendMessages {
