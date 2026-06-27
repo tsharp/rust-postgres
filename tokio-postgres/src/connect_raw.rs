@@ -99,8 +99,8 @@ where
     .await?;
 
     let mut stream = StartupStream {
-        inner: Framed::new(stream, PostgresCodec),
-        buf: BackendMessages::empty(),
+        inner: Framed::with_capacity(stream, PostgresCodec, config.buffer_size),
+        buf: BackendMessages::with_capacity(config.buffer_size),
         delayed: VecDeque::new(),
     };
 
@@ -120,6 +120,7 @@ where
         config.ssl_negotiation,
         process_id,
         secret_key,
+        config.buffer_size,
     );
     let connection = Connection::new(stream.inner, stream.delayed, parameters, receiver);
 

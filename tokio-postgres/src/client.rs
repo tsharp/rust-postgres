@@ -41,6 +41,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 pub struct Responses {
     receiver: mpsc::Receiver<BackendMessages>,
     cur: BackendMessages,
+    buffer_size: usize,
 }
 
 impl Responses {
@@ -49,7 +50,13 @@ impl Responses {
             match self.cur.next().map_err(Error::parse)? {
                 Some(Message::ErrorResponse(body)) => return Poll::Ready(Err(Error::db(body))),
                 Some(message) => return Poll::Ready(Ok(message)),
-                None => {}
+                None => {
+                    if self.cur.capacity() > self.buffer_size {
+                        // Drop the drained batch before waiting for the next one so
+                        // large response buffers are not retained longer than needed.
+                        self.cur = BackendMessages::with_capacity(self.buffer_size);
+                    }
+                }
             }
 
             match ready!(self.receiver.poll_next_unpin(cx)) {
@@ -87,6 +94,7 @@ struct CachedTypeInfo {
 pub struct InnerClient {
     sender: mpsc::UnboundedSender<Request>,
     cached_typeinfo: Mutex<CachedTypeInfo>,
+    buffer_size: usize,
 
     /// A buffer to use when writing out postgres commands.
     buffer: Mutex<BytesMut>,
@@ -102,7 +110,8 @@ impl InnerClient {
 
         Ok(Responses {
             receiver,
-            cur: BackendMessages::empty(),
+            cur: BackendMessages::with_capacity(self.buffer_size),
+            buffer_size: self.buffer_size,
         })
     }
 
@@ -150,7 +159,11 @@ impl InnerClient {
     {
         let mut buffer = self.buffer.lock();
         let r = f(&mut buffer);
-        buffer.clear();
+        if buffer.capacity() > self.buffer_size {
+            *buffer = BytesMut::with_capacity(self.buffer_size);
+        } else {
+            buffer.clear();
+        }
         r
     }
 }
@@ -195,12 +208,14 @@ impl Client {
         ssl_negotiation: SslNegotiation,
         process_id: i32,
         secret_key: i32,
+        buffer_size: usize,
     ) -> Client {
         Client {
             inner: Arc::new(InnerClient {
                 sender,
                 cached_typeinfo: Default::default(),
-                buffer: Default::default(),
+                buffer_size,
+                buffer: Mutex::new(BytesMut::with_capacity(buffer_size)),
             }),
             #[cfg(feature = "runtime")]
             socket_config: None,

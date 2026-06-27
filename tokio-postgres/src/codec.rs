@@ -21,8 +21,16 @@ pub enum BackendMessage {
 pub struct BackendMessages(BytesMut);
 
 impl BackendMessages {
-    pub fn empty() -> BackendMessages {
-        BackendMessages(BytesMut::new())
+    pub fn with_capacity(capacity: usize) -> BackendMessages {
+        BackendMessages(BytesMut::with_capacity(capacity))
+    }
+
+    fn with_buffer(buffer: BytesMut) -> BackendMessages {
+        BackendMessages(buffer)
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.0.capacity()
     }
 }
 
@@ -90,7 +98,7 @@ impl Decoder for PostgresCodec {
             Ok(None)
         } else {
             Ok(Some(BackendMessage::Normal {
-                messages: BackendMessages(src.split_to(idx)),
+                messages: BackendMessages::with_buffer(src.split_to(idx)),
                 request_complete,
             }))
         }
