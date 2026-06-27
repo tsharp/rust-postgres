@@ -812,3 +812,45 @@ impl fmt::Debug for Client {
         f.debug_struct("Client").finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::task::noop_waker_ref;
+
+    #[test]
+    fn responses_drop_oversized_drained_batch_before_waiting() {
+        let buffer_size = 16;
+        let (_sender, receiver) = mpsc::channel(1);
+        let mut responses = Responses {
+            receiver,
+            cur: BackendMessages::with_capacity(1024 * 1024),
+            buffer_size,
+        };
+
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
+
+        assert!(responses.cur.capacity() > buffer_size);
+        assert!(matches!(responses.poll_next(&mut cx), Poll::Pending));
+        assert!(responses.cur.capacity() <= buffer_size);
+    }
+
+    #[test]
+    fn inner_client_drops_oversized_write_buffer_after_use() {
+        let buffer_size = 16;
+        let (sender, _receiver) = mpsc::unbounded();
+        let client = InnerClient {
+            sender,
+            cached_typeinfo: Default::default(),
+            buffer_size,
+            buffer: Mutex::new(BytesMut::with_capacity(buffer_size)),
+        };
+
+        client.with_buf(|buf| {
+            buf.reserve(1024 * 1024);
+        });
+
+        assert!(client.buffer.lock().capacity() <= buffer_size);
+    }
+}
