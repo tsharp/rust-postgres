@@ -656,9 +656,6 @@ impl Config {
                 let buffer_size = value
                     .parse::<usize>()
                     .map_err(|_| Error::config_parse(Box::new(InvalidValue("buffer_size"))))?;
-                if buffer_size == 0 {
-                    return Err(Error::config_parse(Box::new(InvalidValue("buffer_size"))));
-                }
                 self.buffer_size(buffer_size);
             }
             "tcp_user_timeout" => {
@@ -1245,6 +1242,7 @@ mod tests {
             .unwrap();
         assert_eq!(32768, config.get_buffer_size());
 
-        "buffer_size=0".parse::<Config>().err().unwrap();
+        let config = "buffer_size=0".parse::<Config>().unwrap();
+        assert_eq!(0, config.get_buffer_size());
     }
 }

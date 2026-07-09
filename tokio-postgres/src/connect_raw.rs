@@ -99,7 +99,11 @@ where
     .await?;
 
     let mut stream = StartupStream {
-        inner: Framed::with_capacity(stream, PostgresCodec, config.buffer_size),
+        inner: Framed::with_capacity(
+            stream,
+            PostgresCodec::new(config.buffer_size),
+            config.buffer_size,
+        ),
         buf: BackendMessages::with_capacity(config.buffer_size),
         delayed: VecDeque::new(),
     };

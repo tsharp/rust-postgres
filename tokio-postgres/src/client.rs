@@ -41,7 +41,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 pub struct Responses {
     receiver: mpsc::Receiver<BackendMessages>,
     cur: BackendMessages,
-    buffer_size: usize,
 }
 
 impl Responses {
@@ -50,13 +49,7 @@ impl Responses {
             match self.cur.next().map_err(Error::parse)? {
                 Some(Message::ErrorResponse(body)) => return Poll::Ready(Err(Error::db(body))),
                 Some(message) => return Poll::Ready(Ok(message)),
-                None => {
-                    if self.cur.capacity() > self.buffer_size {
-                        // Drop the drained batch before waiting for the next one so
-                        // large response buffers are not retained longer than needed.
-                        self.cur = BackendMessages::with_capacity(self.buffer_size);
-                    }
-                }
+                None => {}
             }
 
             match ready!(self.receiver.poll_next_unpin(cx)) {
@@ -110,8 +103,9 @@ impl InnerClient {
 
         Ok(Responses {
             receiver,
-            cur: BackendMessages::with_capacity(self.buffer_size),
-            buffer_size: self.buffer_size,
+            // The first batch from the channel replaces `cur`, so there is no
+            // need to pre-allocate here.
+            cur: BackendMessages::with_capacity(0),
         })
     }
 
@@ -816,25 +810,6 @@ impl fmt::Debug for Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures_util::task::noop_waker_ref;
-
-    #[test]
-    fn responses_drop_oversized_drained_batch_before_waiting() {
-        let buffer_size = 16;
-        let (_sender, receiver) = mpsc::channel(1);
-        let mut responses = Responses {
-            receiver,
-            cur: BackendMessages::with_capacity(1024 * 1024),
-            buffer_size,
-        };
-
-        let waker = noop_waker_ref();
-        let mut cx = Context::from_waker(waker);
-
-        assert!(responses.cur.capacity() > buffer_size);
-        assert!(matches!(responses.poll_next(&mut cx), Poll::Pending));
-        assert!(responses.cur.capacity() <= buffer_size);
-    }
 
     #[test]
     fn inner_client_drops_oversized_write_buffer_after_use() {
